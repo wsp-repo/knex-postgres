@@ -2,17 +2,24 @@ import { Knex } from 'knex';
 
 import { knexFactory } from './factory';
 
-import { GrantLevels, KnexConfig, MigratorConfig, RoleConfig } from '../types';
+import { AccessLevels, KnexConfig, MigratorConfig, RoleConfig } from '../types';
 
 import { getConnectionConfig } from './config';
 
 type PreparedRole = {
   database: string;
-  grants: GrantLevels[];
+  access: AccessLevels[];
   password: string;
   schema?: string;
   username: string;
 };
+
+/**
+ * Обертка для выполнения RAW запросов (биндинг местами страдает)
+ */
+function rawQuery(knex: Knex, sql: string, binds: Knex.RawBinding): Knex.Raw {
+  return knex.raw(knex.raw(sql, binds).toQuery());
+}
 
 /**
  * Этап создания базы данных
@@ -29,10 +36,10 @@ async function createDatabaseIfNotExists(
   const knex = knexFactory({ ...knexConfig, connection });
 
   const dbData = await knex('pg_catalog.pg_database')
-    .whereRaw('lower(??) = lower(?)', ['dbname', database])
+    .where('datname', database)
     .first('*');
 
-  if (!dbData) await knex.raw('CREATE DATABASE ??;', [database]);
+  if (!dbData) await rawQuery(knex, 'CREATE DATABASE ??;', [database]);
 
   await knex.destroy();
 }
@@ -51,7 +58,8 @@ async function createSchemaIfNotExists(
   const connection = getConnectionConfig(knexConfig.connection);
   const knex = knexFactory({ ...knexConfig, connection });
 
-  await knex.raw('CREATE SCHEMA IF NOT EXISTS ??;', [schemaName]);
+  await rawQuery(knex, 'CREATE SCHEMA IF NOT EXISTS ??;', [schemaName]);
+
   await knex.destroy();
 }
 
@@ -59,44 +67,28 @@ async function createSchemaIfNotExists(
  * Подготавливает ролевые права
  */
 function prepareRoleConfigs(
-  roleConfigs: RoleConfig[],
+  roles: Record<string, RoleConfig>,
   database: string,
   schema?: string,
 ): PreparedRole[] {
-  const rolesHash = roleConfigs.reduce(
-    (memo, role) => {
-      const { grantLevel, username, password } = role;
+  return Object.entries(roles).map(([username, { password, access }]) => {
+    const localAccess = access.includes(AccessLevels.All)
+      ? [AccessLevels.All]
+      : [...access];
 
-      const createRole = memo[username] || {
-        database,
-        grants: [],
-        password,
-        schema,
-        username,
-      };
+    const setAccess = new Set(localAccess);
 
-      createRole.grants.push(grantLevel);
-
-      memo[username] = createRole;
-
-      return memo;
-    },
-    {} as Record<string, PreparedRole>,
-  );
-
-  // нужно "подчистить" набор прав ролей
-  return Object.values(rolesHash).map(({ grants, ...other }) => {
-    if (grants.includes(GrantLevels.All)) {
-      return { ...other, grants: [GrantLevels.All] };
+    if (setAccess.has(AccessLevels.Write)) {
+      setAccess.delete(AccessLevels.Read);
     }
 
-    const setGrants = new Set(grants);
-
-    if (setGrants.has(GrantLevels.Write)) {
-      setGrants.delete(GrantLevels.Read);
-    }
-
-    return { ...other, grants: [...setGrants] };
+    return {
+      access: [...setAccess],
+      database,
+      password,
+      schema,
+      username,
+    };
   });
 }
 
@@ -107,16 +99,20 @@ async function createRoleIfNotExists(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const { username, password } = roleConfig;
-
   try {
-    await knex.raw('CREATE ROLE ?? LOGIN PASSWORD ?;', [username, password]);
+    await rawQuery(knex, 'CREATE ROLE ?? LOGIN PASSWORD ?;', [
+      roleConfig.username,
+      roleConfig.password,
+    ]);
   } catch (error) {
     console.warn(`Create role error: ${error.message}`);
   }
 
   try {
-    await knex.raw('ALTER USER ?? WITH PASSWORD ?;', [username, password]);
+    await rawQuery(knex, 'ALTER USER ?? WITH PASSWORD ?;', [
+      roleConfig.username,
+      roleConfig.password,
+    ]);
   } catch (error) {
     console.warn(`Alter password error: ${error.message}`);
   }
@@ -125,14 +121,38 @@ async function createRoleIfNotExists(
 /**
  * Этап создания пользователя с правами
  */
-async function grantRoleClearPrivileges(
+async function revokeRoleAllPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  await knex.raw('REVOKE ALL PRIVILEGES ON SCHEMA ?? FROM ?? CASCADE;', [
-    roleConfig.schema,
-    roleConfig.username,
-  ]);
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+
+  try {
+    await runQuery('REVOKE ALL PRIVILEGES ON SCHEMA ?? FROM ?? CASCADE;');
+
+    await runQuery('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA ?? FROM ??;');
+    await runQuery(
+      'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA ?? FROM ??;',
+    );
+    await runQuery(
+      'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ?? FROM ??;',
+    );
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON TABLES FROM ??;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON FUNCTIONS FROM ??;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON SEQUENCES FROM ??;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error revokeRoleAllPrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -142,10 +162,36 @@ async function grantRoleAllPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  await knex.raw('GRANT ALL PRIVILEGES ON SCHEMA ?? TO ??;', [
-    roleConfig.schema,
-    roleConfig.username,
-  ]);
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+
+  try {
+    await runQuery('GRANT ALL ON SCHEMA ?? TO ?? WITH GRANT OPTION;');
+
+    await runQuery(
+      'GRANT ALL ON ALL TABLES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+    );
+    await runQuery(
+      'GRANT ALL ON ALL FUNCTIONS IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+    );
+    await runQuery(
+      'GRANT ALL ON ALL SEQUENCES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+    );
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON TABLES TO ?? WITH GRANT OPTION;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON FUNCTIONS TO ?? WITH GRANT OPTION;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON SEQUENCES TO ?? WITH GRANT OPTION;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error grantRoleAllPrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -155,33 +201,51 @@ async function grantRoleLockPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  await knex.raw('GRANT MAINTAIN ON ALL TABLES IN SCHEMA ?? TO ??;', [
-    roleConfig.schema,
-    roleConfig.username,
-  ]);
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+
+  try {
+    await runQuery('GRANT MAINTAIN ON ALL TABLES IN SCHEMA ?? TO ??;');
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT MAINTAIN ON TABLES TO ??;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error grantRoleLockPrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
  * Этап создания пользователя с правами
  */
-async function grantRoleCommonPrivileges(
+async function grantRoleBasePrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const bindsForGrant = [roleConfig.schema, roleConfig.username];
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
 
-  await knex.raw(
-    'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ?? TO ??;',
-    bindsForGrant,
-  );
-  await knex.raw(
-    'GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA ?? TO ??;',
-    bindsForGrant,
-  );
-  await knex.raw(
-    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ?? TO ??;',
-    bindsForGrant,
-  );
+  try {
+    await runQuery('GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA ?? TO ??;');
+    await runQuery('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ?? TO ??;');
+    await runQuery('GRANT EXECUTE ON ALL PROCEDURE IN SCHEMA ?? TO ??;');
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, USAGE ON SEQUENCES TO ??;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT EXECUTE ON FUNCTIONS TO ??;',
+    );
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT EXECUTE ON PROCEDURE TO ??;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error grantRoleCommonPrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -191,10 +255,24 @@ async function grantRoleWritePrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  await knex.raw(
-    'GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ?? TO ??;',
-    [roleConfig.schema, roleConfig.username],
-  );
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+
+  try {
+    await grantRoleBasePrivileges(knex, roleConfig);
+
+    await runQuery(
+      'GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ?? TO ??;',
+    );
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ??;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error grantRoleWritePrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -204,42 +282,48 @@ async function grantRoleReadPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  await knex.raw('GRANT SELECT ON ALL TABLES IN SCHEMA ?? TO ??;', [
-    roleConfig.schema,
-    roleConfig.username,
-  ]);
+  const runQuery = (sql: string): Knex.Raw =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+
+  try {
+    await grantRoleBasePrivileges(knex, roleConfig);
+
+    await runQuery('GRANT SELECT ON ALL TABLES IN SCHEMA ?? TO ??;');
+
+    await runQuery(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT ON TABLES TO ??;',
+    );
+  } catch (error) {
+    console.warn(
+      `Error grantRoleReadPrivileges(${roleConfig.username}): ${error.message}`,
+    );
+  }
 }
 
 /**
  * Этап создания пользователя с правами
  */
-async function grantRolePrivileges(
+async function updateRolePrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  try {
-    await grantRoleClearPrivileges(knex, roleConfig);
+  await revokeRoleAllPrivileges(knex, roleConfig);
 
-    for (const grantLevel of roleConfig.grants) {
-      switch (grantLevel) {
-        case GrantLevels.All:
-          await grantRoleAllPrivileges(knex, roleConfig);
-          break;
-        case GrantLevels.Lock:
-          await grantRoleLockPrivileges(knex, roleConfig);
-          break;
-        case GrantLevels.Write:
-          await grantRoleCommonPrivileges(knex, roleConfig);
-          await grantRoleWritePrivileges(knex, roleConfig);
-          break;
-        case GrantLevels.Read:
-          await grantRoleCommonPrivileges(knex, roleConfig);
-          await grantRoleReadPrivileges(knex, roleConfig);
-          break;
-      }
+  for (const access of roleConfig.access) {
+    switch (access) {
+      case AccessLevels.All:
+        await grantRoleAllPrivileges(knex, roleConfig);
+        break;
+      case AccessLevels.Lock:
+        await grantRoleLockPrivileges(knex, roleConfig);
+        break;
+      case AccessLevels.Write:
+        await grantRoleWritePrivileges(knex, roleConfig);
+        break;
+      case AccessLevels.Read:
+        await grantRoleReadPrivileges(knex, roleConfig);
+        break;
     }
-  } catch (error) {
-    console.warn(`Grant privileges error: ${error.message}`);
   }
 }
 
@@ -250,7 +334,12 @@ async function createRolesIfNotExists(
   knexConfig: KnexConfig,
   migratorConfig: MigratorConfig,
 ): Promise<void> {
-  if (!migratorConfig.roleConfigs?.length) return;
+  /* prettier-ignore */
+  const roles = migratorConfig.roles
+    ? Object.keys(migratorConfig.roles)
+    : [];
+
+  if (roles.length === 0) return;
 
   const connection = getConnectionConfig(knexConfig.connection);
 
@@ -258,7 +347,7 @@ async function createRolesIfNotExists(
 
   const knex = knexFactory({ ...knexConfig, connection });
   const roleConfigs = prepareRoleConfigs(
-    migratorConfig.roleConfigs,
+    migratorConfig.roles,
     connection.database,
     migratorConfig.schemaName,
   );
@@ -271,7 +360,7 @@ async function createRolesIfNotExists(
       }
 
       await createRoleIfNotExists(knex, roleConfig);
-      await grantRolePrivileges(knex, roleConfig);
+      await updateRolePrivileges(knex, roleConfig);
     }),
   );
 

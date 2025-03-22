@@ -22,7 +22,7 @@ export function getConnectionConfig(
   const port = portConfig || Number(connectionUrl?.port) || 5432;
   const user = userConfig || connectionUrl?.username;
   const password = passConfig || connectionUrl?.password;
-  const database = baseConfig || connectionUrl?.pathname;
+  const database = baseConfig || connectionUrl?.pathname.split('/')[1];
 
   return { ...other, database, host, password, port, user };
 }

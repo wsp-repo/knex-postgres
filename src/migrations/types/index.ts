@@ -7,7 +7,7 @@ export type KnexConfig = Omit<Knex.Config, 'connection'> & {
   connection: ConnectionConfig;
 };
 
-export enum GrantLevels {
+export enum AccessLevels {
   All = 'all',
   Lock = 'lock',
   Write = 'write',
@@ -15,11 +15,10 @@ export enum GrantLevels {
 }
 
 export type RoleConfig = {
-  grantLevel: GrantLevels;
+  access: AccessLevels[];
   password: string;
-  username: string;
 };
 
 export type MigratorConfig = Knex.MigratorConfig & {
-  roleConfigs: RoleConfig[];
+  roles: Record<string, RoleConfig>;
 };
