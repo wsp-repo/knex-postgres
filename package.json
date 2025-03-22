@@ -1,6 +1,6 @@
 {
   "name": "@wspro/knex-postgres",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Knex postgres extends",
   "author": "https://github.com/wsp-repo/",
   "license": "UNLICENSED",

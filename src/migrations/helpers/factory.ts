@@ -18,8 +18,8 @@ function prepareApplicationName(applicationName: string): string {
 /**
  * Подготавливает конфиг с учетом параметров
  */
-function getKnexOptions(config: KnexConfig): Knex.Config {
-  const { applicationName, pool = {}, ...otherConfig } = config;
+function getKnexConfig(knexConfig: KnexConfig): Knex.Config {
+  const { applicationName, pool = {}, ...otherConfig } = knexConfig;
   const { afterCreate, ...otherPool } = pool;
 
   return {
@@ -31,6 +31,9 @@ function getKnexOptions(config: KnexConfig): Knex.Config {
         conn: Connection,
         done: () => void,
       ): Promise<void> => {
+        // для проверки подключения
+        await conn.query('SELECT 1;');
+
         if (applicationName?.length > 0) {
           const appName = prepareApplicationName(applicationName);
 
@@ -47,6 +50,6 @@ function getKnexOptions(config: KnexConfig): Knex.Config {
   };
 }
 
-export function knexFactory(config: KnexConfig): Knex {
-  return createKnexClient(getKnexOptions(config));
+export function knexFactory(knexConfig: KnexConfig): Knex {
+  return createKnexClient(getKnexConfig(knexConfig));
 }

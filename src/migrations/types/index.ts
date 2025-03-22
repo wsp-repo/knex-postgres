@@ -1,19 +1,25 @@
 import { Knex } from 'knex';
 
-export type ConnectionConfig = Knex.PgConnectionConfig & {
-  schema?: string;
-};
-
-export type CreatorUser = {
-  user: string;
-  password: string;
-};
+export type ConnectionConfig = Knex.PgConnectionConfig;
 
 export type KnexConfig = Omit<Knex.Config, 'connection'> & {
   applicationName: string;
   connection: ConnectionConfig;
 };
 
+export enum GrantLevels {
+  All = 'all',
+  Lock = 'lock',
+  Write = 'write',
+  Read = 'read',
+}
+
+export type RoleConfig = {
+  grantLevel: GrantLevels;
+  password: string;
+  username: string;
+};
+
 export type MigratorConfig = Knex.MigratorConfig & {
-  creator?: CreatorUser;
+  roleConfigs: RoleConfig[];
 };

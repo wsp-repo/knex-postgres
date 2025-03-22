@@ -14,7 +14,6 @@ export function getConnectionConfig(
     user: userConfig,
     password: passConfig,
     database: baseConfig,
-    schema: schemaConfig,
     ...other
   } = connection;
 
@@ -24,8 +23,6 @@ export function getConnectionConfig(
   const user = userConfig || connectionUrl?.username;
   const password = passConfig || connectionUrl?.password;
   const database = baseConfig || connectionUrl?.pathname;
-  const schema =
-    schemaConfig || connectionUrl?.searchParams.get('searchpath') || undefined;
 
-  return { ...other, database, host, password, port, schema, user };
+  return { ...other, database, host, password, port, user };
 }

@@ -3,26 +3,26 @@ import { knexFactory, prepareDatabase } from './helpers';
 import { KnexConfig, MigratorConfig } from './types';
 
 export async function migrateUp(
-  connectionConfig: KnexConfig,
-  migrationConfig: MigratorConfig,
+  knexConfig: KnexConfig,
+  migratorConfig: MigratorConfig,
 ): Promise<void> {
-  await prepareDatabase(connectionConfig, migrationConfig?.creator);
+  await prepareDatabase(knexConfig, migratorConfig);
 
-  await knexFactory(connectionConfig).migrate.up(migrationConfig);
+  await knexFactory(knexConfig).migrate.up(migratorConfig);
 }
 
 export async function migrateLatest(
-  connectionConfig: KnexConfig,
-  migrationConfig: MigratorConfig,
+  knexConfig: KnexConfig,
+  migratorConfig: MigratorConfig,
 ): Promise<void> {
-  await prepareDatabase(connectionConfig, migrationConfig?.creator);
+  await prepareDatabase(knexConfig, migratorConfig);
 
-  await knexFactory(connectionConfig).migrate.latest(migrationConfig);
+  await knexFactory(knexConfig).migrate.latest(migratorConfig);
 }
 
 export async function migrateDown(
-  connectionConfig: KnexConfig,
-  migrationConfig: MigratorConfig,
+  knexConfig: KnexConfig,
+  migratorConfig: MigratorConfig,
 ): Promise<void> {
-  await knexFactory(connectionConfig).migrate.down(migrationConfig);
+  await knexFactory(knexConfig).migrate.down(migratorConfig);
 }
