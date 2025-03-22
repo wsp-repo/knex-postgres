@@ -1,0 +1,12 @@
+# System
+node_modules
+dist
+
+# Tests
+/coverage
+/reports
+/junit.*
+
+# IDE
+.vscode
+.idea
