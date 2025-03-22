@@ -8,14 +8,13 @@ export type KnexConfig = Omit<Knex.Config, 'connection'> & {
 };
 
 export enum AccessLevels {
-  All = 'all',
-  Lock = 'lock',
+  Full = 'full',
   Write = 'write',
   Read = 'read',
 }
 
 export type RoleConfig = {
-  access: AccessLevels[];
+  access: AccessLevels;
   password: string;
 };
 

@@ -12,7 +12,7 @@ npm i @wspro/knex-postgres
 
 ```
 const {
-  GrantLevels,
+  AccessLevels,
   migrateLatest,
   migrateDown,
   migrateUp,
@@ -26,14 +26,14 @@ function getConnectionConfig() {
 // см. тип MigratorConfig в пакете
 function getMigrationConfig() {
   // пользовательские роли
-  const roleConfigs = [
-    { username: '...', password: '...', grantLevel: GrantLevels.All },
-    { username: '...', password: '...', grantLevel: GrantLevels.Write },
-    { username: '...', password: '...', grantLevel: GrantLevels.Read },
-    { username: '...', password: '...', grantLevel: GrantLevels.Lock },
-  ]
+  const roles = {
+    username1: { password: '...', access: [AccessLevels.Full] },
+    username2: { password: '...', access: [AccessLevels.Write] },
+    username3: { password: '...', access: [AccessLevels.Read] },
+    username4: { password: '...', access: [AccessLevels.Lock] },
+  };
 
-  return { ..., roleConfigs };
+  return { ..., roles };
 }
 
 async function migrate() {

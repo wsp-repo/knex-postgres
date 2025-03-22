@@ -8,7 +8,7 @@ import { getConnectionConfig } from './config';
 
 type PreparedRole = {
   database: string;
-  access: AccessLevels[];
+  access: AccessLevels;
   password: string;
   schema?: string;
   username: string;
@@ -71,25 +71,13 @@ function prepareRoleConfigs(
   database: string,
   schema?: string,
 ): PreparedRole[] {
-  return Object.entries(roles).map(([username, { password, access }]) => {
-    const localAccess = access.includes(AccessLevels.All)
-      ? [AccessLevels.All]
-      : [...access];
-
-    const setAccess = new Set(localAccess);
-
-    if (setAccess.has(AccessLevels.Write)) {
-      setAccess.delete(AccessLevels.Read);
-    }
-
-    return {
-      access: [...setAccess],
-      database,
-      password,
-      schema,
-      username,
-    };
-  });
+  return Object.entries(roles).map(([username, { password, access }]) => ({
+    access,
+    database,
+    password,
+    schema,
+    username,
+  }));
 }
 
 /**
@@ -125,98 +113,67 @@ async function revokeRoleAllPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
-
-  try {
-    await runQuery('REVOKE ALL PRIVILEGES ON SCHEMA ?? FROM ?? CASCADE;');
-
-    await runQuery(
-      'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA ?? FROM ?? CASCADE;',
-    );
-    await runQuery(
-      'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA ?? FROM ?? CASCADE;',
-    );
-    await runQuery(
-      'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ?? FROM ?? CASCADE;',
+  const runQuery = (sql: string): Promise<void> =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]).catch(
+      (error: Error) => console.warn(`Error ${sql}: ${error.message}`),
     );
 
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON TABLES FROM ?? CASCADE;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON FUNCTIONS FROM ?? CASCADE;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON SEQUENCES FROM ?? CASCADE;',
-    );
-  } catch (error) {
-    console.warn(
-      `Error revokeRoleAllPrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON TABLES FROM ?? CASCADE;',
+  );
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON SEQUENCES FROM ?? CASCADE;',
+  );
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? REVOKE ALL PRIVILEGES ON FUNCTIONS FROM ?? CASCADE;',
+  );
+
+  await runQuery(
+    'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA ?? FROM ?? CASCADE;',
+  );
+  await runQuery(
+    'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ?? FROM ?? CASCADE;',
+  );
+  await runQuery(
+    'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA ?? FROM ?? CASCADE;',
+  );
+
+  await runQuery('REVOKE ALL PRIVILEGES ON SCHEMA ?? FROM ?? CASCADE;');
 }
 
 /**
  * Этап создания пользователя с правами
  */
-async function grantRoleAllPrivileges(
+async function grantRoleFullPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
-
-  try {
-    await runQuery('GRANT ALL ON SCHEMA ?? TO ?? WITH GRANT OPTION;');
-
-    await runQuery(
-      'GRANT ALL ON ALL TABLES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
-    );
-    await runQuery(
-      'GRANT ALL ON ALL FUNCTIONS IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
-    );
-    await runQuery(
-      'GRANT ALL ON ALL SEQUENCES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+  const runQuery = (sql: string): Promise<void> =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]).catch(
+      (error: Error) => console.warn(`Error ${sql}: ${error.message}`),
     );
 
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON TABLES TO ?? WITH GRANT OPTION;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON FUNCTIONS TO ?? WITH GRANT OPTION;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON SEQUENCES TO ?? WITH GRANT OPTION;',
-    );
-  } catch (error) {
-    console.warn(
-      `Error grantRoleAllPrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
-}
+  await runQuery('GRANT ALL ON SCHEMA ?? TO ?? WITH GRANT OPTION;');
 
-/**
- * Этап создания пользователя с правами
- */
-async function grantRoleLockPrivileges(
-  knex: Knex,
-  roleConfig: PreparedRole,
-): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON TABLES TO ?? WITH GRANT OPTION;',
+  );
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON SEQUENCES TO ?? WITH GRANT OPTION;',
+  );
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT ALL ON FUNCTIONS TO ?? WITH GRANT OPTION;',
+  );
 
-  try {
-    await runQuery('GRANT MAINTAIN ON ALL TABLES IN SCHEMA ?? TO ??;');
-
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT MAINTAIN ON TABLES TO ??;',
-    );
-  } catch (error) {
-    console.warn(
-      `Error grantRoleLockPrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
+  await runQuery(
+    'GRANT ALL ON ALL TABLES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+  );
+  await runQuery(
+    'GRANT ALL ON ALL SEQUENCES IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+  );
+  await runQuery(
+    'GRANT ALL ON ALL FUNCTIONS IN SCHEMA ?? TO ?? WITH GRANT OPTION;',
+  );
 }
 
 /**
@@ -226,28 +183,20 @@ async function grantRoleBasePrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
+  const runQuery = (sql: string): Promise<void> =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]).catch(
+      (error: Error) => console.warn(`Error ${sql}: ${error.message}`),
+    );
 
-  try {
-    await runQuery('GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA ?? TO ??;');
-    await runQuery('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ?? TO ??;');
-    await runQuery('GRANT EXECUTE ON ALL PROCEDURE IN SCHEMA ?? TO ??;');
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, USAGE ON SEQUENCES TO ??;',
+  );
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT EXECUTE ON FUNCTIONS TO ??;',
+  );
 
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, USAGE ON SEQUENCES TO ??;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT EXECUTE ON FUNCTIONS TO ??;',
-    );
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT EXECUTE ON PROCEDURE TO ??;',
-    );
-  } catch (error) {
-    console.warn(
-      `Error grantRoleCommonPrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
+  await runQuery('GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA ?? TO ??;');
+  await runQuery('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ?? TO ??;');
 }
 
 /**
@@ -257,24 +206,20 @@ async function grantRoleWritePrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
-
-  try {
-    await grantRoleBasePrivileges(knex, roleConfig);
-
-    await runQuery(
-      'GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ?? TO ??;',
+  const runQuery = (sql: string): Promise<void> =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]).catch(
+      (error: Error) => console.warn(`Error ${sql}: ${error.message}`),
     );
 
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ??;',
-    );
-  } catch (error) {
-    console.warn(
-      `Error grantRoleWritePrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
+  await grantRoleBasePrivileges(knex, roleConfig);
+
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ??;',
+  );
+
+  await runQuery(
+    'GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ?? TO ??;',
+  );
 }
 
 /**
@@ -284,22 +229,18 @@ async function grantRoleReadPrivileges(
   knex: Knex,
   roleConfig: PreparedRole,
 ): Promise<void> {
-  const runQuery = (sql: string): Knex.Raw =>
-    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]);
-
-  try {
-    await grantRoleBasePrivileges(knex, roleConfig);
-
-    await runQuery('GRANT SELECT ON ALL TABLES IN SCHEMA ?? TO ??;');
-
-    await runQuery(
-      'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT ON TABLES TO ??;',
+  const runQuery = (sql: string): Promise<void> =>
+    rawQuery(knex, sql, [roleConfig.schema, roleConfig.username]).catch(
+      (error: Error) => console.warn(`Error ${sql}: ${error.message}`),
     );
-  } catch (error) {
-    console.warn(
-      `Error grantRoleReadPrivileges(${roleConfig.username}): ${error.message}`,
-    );
-  }
+
+  await grantRoleBasePrivileges(knex, roleConfig);
+
+  await runQuery(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA ?? GRANT SELECT ON TABLES TO ??;',
+  );
+
+  await runQuery('GRANT SELECT ON ALL TABLES IN SCHEMA ?? TO ??;');
 }
 
 /**
@@ -311,21 +252,16 @@ async function updateRolePrivileges(
 ): Promise<void> {
   await revokeRoleAllPrivileges(knex, roleConfig);
 
-  for (const access of roleConfig.access) {
-    switch (access) {
-      case AccessLevels.All:
-        await grantRoleAllPrivileges(knex, roleConfig);
-        break;
-      case AccessLevels.Lock:
-        await grantRoleLockPrivileges(knex, roleConfig);
-        break;
-      case AccessLevels.Write:
-        await grantRoleWritePrivileges(knex, roleConfig);
-        break;
-      case AccessLevels.Read:
-        await grantRoleReadPrivileges(knex, roleConfig);
-        break;
-    }
+  switch (roleConfig.access) {
+    case AccessLevels.Full:
+      await grantRoleFullPrivileges(knex, roleConfig);
+      break;
+    case AccessLevels.Write:
+      await grantRoleWritePrivileges(knex, roleConfig);
+      break;
+    case AccessLevels.Read:
+      await grantRoleReadPrivileges(knex, roleConfig);
+      break;
   }
 }
 
