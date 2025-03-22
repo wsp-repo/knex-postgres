@@ -9,8 +9,8 @@ export type KnexConfig = Omit<Knex.Config, 'connection' | 'client'> & {
 
 export enum AccessLevels {
   Full = 'full',
-  Write = 'write',
   Read = 'read',
+  Write = 'write',
 }
 
 export type RoleConfig = {
