@@ -20,7 +20,11 @@ const {
 
 // см. тип KnexConfig в пакете
 function getConnectionConfig() {
-  return { client: 'pg', connection: { ... } };
+  return {
+    applicationName: 'appName',
+    connection: { ... },
+    ...
+  };
 }
 
 // см. тип MigratorConfig в пакете

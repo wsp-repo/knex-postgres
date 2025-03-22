@@ -2,7 +2,7 @@ import { Knex } from 'knex';
 
 export type ConnectionConfig = Knex.PgConnectionConfig;
 
-export type KnexConfig = Omit<Knex.Config, 'connection'> & {
+export type KnexConfig = Omit<Knex.Config, 'connection' | 'client'> & {
   applicationName: string;
   connection: ConnectionConfig;
 };
