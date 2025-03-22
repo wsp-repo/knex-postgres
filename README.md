@@ -8,7 +8,20 @@ npm i @wspro/knex-postgres
 
 ## Use migration methods
 
-*migrations.js*
+**package.json**
+
+```
+  ...
+  "scripts": {
+    ...
+    "migrate:down": "node migrations.js down",
+    "migrate:latest": "node migrations.js latest",
+    "migrate:up": "node migrations.js up",
+    ...
+  },
+```
+
+**migrations.js**
 
 ```
 const {
@@ -68,17 +81,4 @@ async function migrate() {
 }
 
 migrate();
-```
-
-*package.json*
-
-```
-  ...
-  "scripts": {
-    ...
-    "migrate:down": "node migrations.js down",
-    "migrate:latest": "node migrations.js latest",
-    "migrate:up": "node migrations.js latest",
-    ...
-  },
 ```
