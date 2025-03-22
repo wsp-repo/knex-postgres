@@ -7,8 +7,8 @@ import { AccessLevels, KnexConfig, MigratorConfig, RoleConfig } from '../types';
 import { getConnectionConfig } from './config';
 
 type PreparedRole = {
-  database: string;
   access: AccessLevels;
+  database: string;
   password: string;
   schema?: string;
   username: string;

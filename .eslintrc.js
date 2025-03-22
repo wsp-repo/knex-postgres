@@ -1,5 +1,5 @@
-const jsEslintConfig = require('@wspro/linter/eslint/js');
-const tsEslintConfig = require('@wspro/linter/eslint/ts');
+const jsEslintConfig = require('@zalib/linter/eslint/js');
+const tsEslintConfig = require('@zalib/linter/eslint/ts');
 
 module.exports = {
   overrides: [
