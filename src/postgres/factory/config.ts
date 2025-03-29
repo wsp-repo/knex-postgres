@@ -1,12 +1,15 @@
-import { ConnectionConfig } from '../types';
+import { Knex } from 'knex';
+
+import { PgKnexConfig } from '../types';
+
+import { PgClientConfig, PgConnectionConfig } from '../types/configs';
 
 /**
- * Формирует и возвращает конфиг подключения к БД
+ * Возвращает декомпозированный конфиг соединения
  */
-// eslint-disable-next-line complexity
-export function getConnectionConfig(
-  connection: ConnectionConfig,
-): ConnectionConfig {
+function prepareConnection(
+  connection: Knex.PgConnectionConfig | PgConnectionConfig,
+): PgConnectionConfig {
   const {
     connectionString,
     host: hostConfig,
@@ -25,4 +28,13 @@ export function getConnectionConfig(
   const database = baseConfig || connectionUrl?.pathname.split('/')[1];
 
   return { ...other, database, host, password, port, user };
+}
+
+/**
+ * Формирует и возвращает конфиг подключения к БД
+ */
+export function getClientConfig(
+  config: PgKnexConfig | PgClientConfig,
+): PgClientConfig {
+  return { ...config, connection: prepareConnection(config.connection) };
 }
